@@ -1,45 +1,89 @@
 import { mount } from '@vue/test-utils'
 import TestComponent from './index.vue'
 import { describe, it, expect, vi, type Mock, afterAll, afterEach, beforeAll } from 'vitest'
+import { TestingOptions, createTestingPinia } from '@pinia/testing'
 import { PiniaDebounce } from '@pinia/plugin-debounce'
 import { debounce } from 'ts-debounce'
 import { useAuthStore } from './stores/auth'
 import type { Store, StoreDefinition } from 'pinia'
 import { rest } from 'msw'
 import { setupServer } from 'msw/node'
+import { delay } from '@tests/mocks/server'
 import { usePreferencesStore } from './stores/preferences'
-import { nextTick } from 'vue'
-import { createPinia } from 'pinia'
+import { ComputedRef, nextTick } from 'vue'
 
 describe('Mocking Stores', () => {
-  it('mounts and uses the store', async () => {
-    // FIXME: use a testing pinia in all tests
-    const pinia = createPinia()
-    pinia.use(PiniaDebounce(debounce))
+  function factory(options: TestingOptions = {}) {
+    const pinia = createTestingPinia({
+      createSpy: vi.fn,
+      plugins: [PiniaDebounce(debounce)],
+      ...options,
+    })
     const wrapper = mount(TestComponent, {
       global: { plugins: [pinia] },
+    })
+
+    return {
+      pinia,
+      wrapper,
+    }
+  }
+  it('mounts a component', async () => {
+    const { wrapper } = factory({
+      initialState: {
+        auth: {
+          user: {
+            id: '1',
+            email: 'a',
+            displayName: 'A',
+            photoURL: 'https://example.com/a.jpg',
+          },
+        },
+        preferences: {
+          theme: 'dark',
+          anonymizeName: false,
+        },
+      },
     })
 
     expect(wrapper.find('[data-test=display-name]').text()).toBe('Display Name: A')
   })
 
   it('can signup a new user', async () => {
-    const wrapper = mount(TestComponent, {
-      // TODO:
-    })
+    const { wrapper } = factory()
     const auth = useAuthStore()
 
-    // TODO:
+    await wrapper.find('#register-email').setValue('eduardo@mail.com')
+    await wrapper.find('#register-password').setValue('secret')
+    await wrapper.find('#register-display-name').setValue('Eduardo')
+    await wrapper.find('[data-test=register-form]').trigger('submit')
+    expect(auth.register).toHaveBeenCalledTimes(1)
+    expect(auth.register).toHaveBeenCalledWith({
+      email: 'eduardo@mail.com',
+      password: 'secret',
+      displayName: 'Eduardo',
+    })
   })
 
-  // make this test pass without setting an initial state that makes it pass
   it('displays the user displayName', async () => {
-    const wrapper = mount(TestComponent, {
-      // TODO:
+    const { wrapper } = factory({
+      initialState: {
+        auth: {
+          user: {
+            id: '1',
+            email: 'a',
+            displayName: 'A',
+            photoURL: 'https://example.com/a.jpg',
+          },
+        },
+      },
     })
 
-    const auth = useAuthStore()
-    // TODO:
+    const auth = mockedStore(useAuthStore)
+    auth.displayName = 'Faked'
+
+    await nextTick()
+
     expect(wrapper.find('[data-test=display-name]').text()).toBe('Display Name: Faked')
   })
 
@@ -95,6 +139,7 @@ describe('Mocking Stores', () => {
     })
     afterEach(() => {
       server.resetHandlers()
+      // vi.restoreAllMocks()
     })
     afterAll(() => {
       // clean up once the tests are done
@@ -103,35 +148,70 @@ describe('Mocking Stores', () => {
 
     // we just test login is called
     it('can login a user', async () => {
-      const wrapper = mount(TestComponent, {
-        // TODO:
+      const { wrapper } = factory({
+        // we can check that the display name changes
+        stubActions: false,
       })
       const auth = mockedStore(useAuthStore)
 
-      // TODO: login as Eduardo, check the restHandlers above
-
+      await wrapper.find('#login-email').setValue('eduardo@mail.com')
+      await wrapper.find('#login-password').setValue('secret')
+      await wrapper.find('[data-test=login-form]').trigger('submit')
+      // we can still spy the actions or even mock them individually
+      expect(auth.login).toHaveBeenCalledTimes(1)
+      expect(auth.login).toHaveBeenCalledWith({ email: 'eduardo@mail.com', password: 'secret' })
+      // we need to wait for the next tick to let promises unveil
+      await delay(0)
+      // a safer way is to use fake timers and runAllTimers
       expect(wrapper.find('[data-test=display-name]').text()).toBe('Display Name: Eduardo')
     })
 
-    // this test should not stub actions and should only mock the preferences.saveServerPreferences action
     it('updates the preferences on the server if the user is logged in', async () => {
-      const wrapper = mount(TestComponent, {
-        // TODO: set the initial state here to simplify the test
+      const { wrapper } = factory({
+        stubActions: false,
+        plugins: [
+          // PiniaDebounce(debounce)
+        ],
+        initialState: {
+          auth: {
+            user: {
+              id: '1',
+              email: 'a',
+              displayName: 'A',
+              photoURL: 'https://example.com/a.jpg',
+            },
+          },
+        },
       })
       const auth = mockedStore(useAuthStore)
       const preferences = mockedStore(usePreferencesStore)
 
-      // TODO:
+      preferences.saveServerPreferences.mockResolvedValueOnce()
+      await wrapper.find('[data-test=update-preferences]').trigger('click')
+      expect(auth.updateLocalPreferences).toHaveBeenCalledTimes(1)
+      expect(preferences.saveServerPreferences).toHaveBeenCalledTimes(1)
     })
 
     it('does not update the preferences on the server if the user is not logged in', async () => {
-      const wrapper = mount(TestComponent, {
-        // TODO:
+      const { wrapper } = factory({
+        createSpy: vi.fn,
+        stubActions: false,
+        plugins: [
+          // PiniaDebounce(debounce)
+        ],
+        initialState: {
+          auth: {
+            user: null,
+          },
+        },
       })
       const auth = mockedStore(useAuthStore)
       const preferences = mockedStore(usePreferencesStore)
 
-      // TODO:
+      preferences.saveServerPreferences.mockResolvedValueOnce()
+      await wrapper.find('[data-test=update-preferences]').trigger('click')
+      expect(auth.updateLocalPreferences).toHaveBeenCalledTimes(1)
+      expect(preferences.saveServerPreferences).not.toHaveBeenCalled()
     })
   })
 })
@@ -142,13 +222,15 @@ function mockedStore<TStoreDef extends () => unknown>(
   ? Store<
       Id,
       State,
-      Getters,
+      Record<string, never>,
       {
         [K in keyof Actions]: Actions[K] extends (...args: infer Args) => infer ReturnT
           ? Mock<Args, ReturnT>
           : Actions[K]
       }
-    >
+    > & {
+      [K in keyof Getters]: Getters[K] extends ComputedRef<infer T> ? T : never
+    }
   : ReturnType<TStoreDef> {
   return useStore() as any
 }

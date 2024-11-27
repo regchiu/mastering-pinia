@@ -51,7 +51,22 @@
       "updatedAt": "2023-11-01T18:40:00.000Z"
     }
   ],
-  "users": [],
+  "users": [
+    {
+      "photoURL": "https://i.pravatar.cc/150?u=foo@gmail.com",
+      "displayName": "Foo",
+      "email": "foo@gmail.com",
+      "password": "aaaa",
+      "id": 1
+    },
+    {
+      "photoURL": "https://i.pravatar.cc/150?u=a",
+      "displayName": "a",
+      "email": "a",
+      "password": "a",
+      "id": 2
+    }
+  ],
   "todos": [],
   "tasks": []
 }

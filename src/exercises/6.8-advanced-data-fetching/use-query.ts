@@ -47,6 +47,8 @@ export interface UseQueryOptions<TResult = unknown> {
    * Function to compute the initial value of the data. Otherwise, it's set to `undefined` until the first fetch is done
    */
   initialValue?: () => TResult
+  refetchOnWindowFocus?: boolean
+  refetchOnReconnect?: boolean
 }
 
 /**
@@ -54,20 +56,62 @@ export interface UseQueryOptions<TResult = unknown> {
  */
 export const USE_QUERY_DEFAULTS = {
   cacheTime: 1000 * 5,
+  refetchOnWindowFocus: true as boolean,
+  refetchOnReconnect: true as boolean,
 } satisfies Partial<UseQueryOptions>
 export type UseQueryOptionsWithDefaults<TResult> = typeof USE_QUERY_DEFAULTS & UseQueryOptions<TResult>
 
 export function useQuery<TResult, TError = Error>(_options: UseQueryOptions<TResult>): UseQueryReturn<TResult, TError> {
   const store = useDataFetchingStore()
 
-  // TODO: implement
-  return {
-    data: computed(() => undefined),
-    error: computed(() => null),
-    isFetching: computed(() => false),
-    refetch: () => Promise.resolve({} as TResult),
-    refresh: () => Promise.resolve({} as TResult),
+  const options = {
+    ...USE_QUERY_DEFAULTS,
+    ..._options,
+  } satisfies UseQueryOptionsWithDefaults<TResult>
+
+  const entry = computed(() => store.ensureEntry<TResult, TError>(toValue(options.key), options))
+
+  // only happens on server, app awaits this
+  onServerPrefetch(async () => {
+    await entry.value.refetch().catch(() => {})
+  })
+
+  // only happens on client
+  onMounted(() => {
+    // force a refetch when the component is mounted to ensure the data is fresh
+    entry.value.refetch().catch(() => {})
+    // ensures the entry is fetched when needed
+    watch(entry, entry => {
+      entry.refresh().catch(() => {})
+    })
+  })
+
+  if (IS_CLIENT) {
+    if (options.refetchOnWindowFocus) {
+      useEventListener(window, 'visibilitychange', () => {
+        entry.value.refetch().catch(() => {})
+      })
+    }
+
+    if (options.refetchOnReconnect) {
+      useEventListener(window, 'online', () => {
+        entry.value.refetch().catch(() => {})
+      })
+    }
   }
+
+  const queryReturn = {
+    // we could optimize this by creating the computed properties only once per entry
+    // but that requires further refactoring 🤓
+    data: computed(() => entry.value.data()),
+    error: computed(() => entry.value.error()),
+    isFetching: computed(() => entry.value.isFetching()),
+
+    refresh: () => entry.value.refresh(),
+    refetch: () => entry.value.refetch(),
+  } satisfies UseQueryReturn<TResult, TError>
+
+  return queryReturn
 }
 
 /**
@@ -75,3 +119,4 @@ export function useQuery<TResult, TError = Error>(_options: UseQueryOptions<TRes
  * - Start only with the data, error, and isLoading, no cache, no refresh
  * - Start without the options about refreshing, and mutations
  */
+const IS_CLIENT = typeof window !== 'undefined'

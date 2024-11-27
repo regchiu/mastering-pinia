@@ -1,8 +1,15 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
 import { useTodosStore } from '../../stores/todos'
+import { storeToRefs } from 'pinia';
 
-const { list, finished, add, update } = useTodosStore()
+// NOTE: failing cases to keep in starter
+// const { list, finished, add, update } = useTodosStore()
+// const { list, finished, add, update } = toRefs(todos)
+
+const todos = useTodosStore()
+const { add, update } = todos
+const { list, finished } = storeToRefs(todos)
 
 const text = ref('')
 function addTodo() {

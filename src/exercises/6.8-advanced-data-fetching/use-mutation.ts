@@ -35,16 +35,50 @@ export function useMutation<TResult, TParams extends readonly unknown[], TError 
 ): UseMutationReturn<TResult, TParams, TError> {
   const store = useDataFetchingStore()
 
+  const isFetching = ref(false)
+  const data = shallowRef<TResult>()
+  const error = shallowRef<TError | null>(null)
+
+  // a pending promise allows us to discard previous ongoing requests
+  let pendingPromise: Promise<TResult> | null = null
+
+
   function mutate(...args: TParams) {
-    // TODO: implement
-    return Promise.resolve({} as TResult)
+    isFetching.value = true
+    error.value = null
+
+    const promise = (pendingPromise = options
+      .mutation(...args)
+      .then(_data => {
+        if (pendingPromise === promise) {
+          data.value = _data
+          if (options.keys) {
+            for (const key of options.keys) {
+              store.invalidateEntry(typeof key === 'string' ? key : key({ variables: args, result: _data }), true)
+            }
+          }
+        }
+        return _data
+    }).catch(_error => {
+      if (pendingPromise === promise) {
+        error.value = _error
+      }
+      throw _error
+    }).finally(() => {
+      if (pendingPromise === promise) {
+        isFetching.value = false
+      }
+    }))
+
+    return promise
   }
 
-  // TODO: implement
-  return {
-    data: computed(() => undefined),
-    isFetching: computed(() => false),
-    error: computed(() => null),
+  const mutationReturn = {
+    data: computed(() => data.value),
+    isFetching: computed(() => isFetching.value),
+    error: computed(() => error.value),
     mutate,
-  }
+  } satisfies UseMutationReturn<TResult, TParams, TError>
+
+  return mutationReturn
 }

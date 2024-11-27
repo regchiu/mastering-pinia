@@ -76,8 +76,72 @@ export const useDataFetchingStore = defineStore('6.8-data-fetching', () => {
     key: string,
     { query, initialValue, cacheTime }: UseQueryOptionsWithDefaults<TResult>,
   ): UseDataFetchingQueryEntry<TResult, TError> {
-    // TODO: implement the code so we can do
+    // ensure the data
+    // console.log('⚙️ Ensuring entry', key)
+    // Consider the data fresh by default. Using 0 will also work, it depends on how you want to handle the cache
+    let when = Date.now()
+    if (!dataRegistry.has(key)) {
+      dataRegistry.set(key, initialValue?.() ?? undefined)
+      errorRegistry.set(key, null)
+      isFetchingRegistry.set(key, false)
+      // if there is no data, we need to fetch it, so we expire it
+      when = 0 // will force a refetch
+    }
 
+    // we need to repopulate the entry registry separately from data and errors
+    if (!queryEntriesRegistry.has(key)) {
+      // console.log(`📝 Creating entry "${key} when: ${when}`)
+      const entry: UseDataFetchingQueryEntry<TResult, TError> = {
+        data: () => dataRegistry.get(key) as TResult,
+        error: () => errorRegistry.get(key) as TError,
+        isFetching: () => isFetchingRegistry.get(key)!,
+        pending: null,
+        async refresh(): Promise<TResult> {
+          if (isExpired(entry.when, cacheTime)) {
+            if (entry.when) {
+              // console.log(`🗑️ "${String(key)}" expired ${entry.when} / ${cacheTime}`)
+            }
+            await (entry.pending?.refreshCall ?? entry.refetch())
+          }
+
+          return entry.data()!
+        },
+        async refetch() {
+          // console.log('🔄 refetching', key)
+          // when if there an ongoing request
+          if (entry.pending) {
+            // console.log('  -> skipped!')
+            return entry.pending.refreshCall
+          }
+          isFetchingRegistry.set(key, true)
+
+          entry.pending = {
+            refreshCall: query()
+              .then(data => {
+                errorRegistry.set(key, null)
+                dataRegistry.set(key, data)
+                return data
+              })
+              .catch(error => {
+                errorRegistry.set(key, error)
+                // we could also always catch the data
+                throw error
+              })
+              .finally(() => {
+                entry.pending = null
+                entry.when = Date.now()
+                isFetchingRegistry.set(key, false)
+              }),
+            when: Date.now(),
+          }
+
+          return entry.pending.refreshCall
+        },
+        when
+      }
+      queryEntriesRegistry.set(key, entry)
+    }
+    
     const entry = queryEntriesRegistry.get(key)!
 
     // in this case, it's okay to cast in TS because we know the type

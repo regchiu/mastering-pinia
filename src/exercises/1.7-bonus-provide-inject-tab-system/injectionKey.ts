@@ -1,5 +1,7 @@
-import { InjectionKey } from 'vue'
+import { InjectionKey, Ref } from 'vue'
 
-type TODO = any
-
-export const registerTabKey: InjectionKey<TODO> = Symbol('tabs')
+export const useTabKey: InjectionKey<
+  (title: Ref<string>) => {
+    isVisible: Ref<boolean>
+  }
+> = Symbol('useTab')
